@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/austintalbot/go-wled-update/internal/ping"
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -40,23 +41,12 @@ func main() {
 		"#FDFF8C",
 	))
 
-	// Example IP to ping; replace with user input or config as needed
-	ip := "192.168.1.100"
+	ip := "192.168.68.200"
 
-	// Start pinging in the background
-	go func() {
-		for {
-			reachable := PingDevice(ip) // Call internal ping method
-			if reachable {
-				fmt.Printf("[INFO] %s is reachable\n", ip)
-			} else {
-				fmt.Printf("[WARN] %s is unreachable\n", ip)
-			}
-			time.Sleep(2 * time.Second)
-		}
-	}()
-
-	if _, err := tea.NewProgram(model{progress: prog}).Run(); err != nil {
+	if _, err := tea.NewProgram(model{
+		progress: prog,
+		ping:     ping.NewModel(ip),
+	}).Run(); err != nil {
 		fmt.Println("Oh no!", err)
 		os.Exit(1)
 	}
@@ -67,13 +57,28 @@ type tickMsg time.Time
 type model struct {
 	percent  float64
 	progress progress.Model
+	ping     ping.Model
 }
 
 func (m model) Init() tea.Cmd {
-	return tickCmd()
+	return tea.Batch(
+		tickCmd(),
+		m.ping.Init(),
+	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// Let the ping model handle the message first
+	var pingCmd tea.Cmd
+	var pingModel tea.Model
+	pingModel, pingCmd = m.ping.Update(msg)
+	m.ping = pingModel.(ping.Model)
+	if pingCmd != nil {
+		cmds = append(cmds, pingCmd)
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m, tea.Quit
@@ -88,17 +93,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.percent = 1.0
 			return m, tea.Quit
 		}
-		return m, tickCmd()
-
-	default:
-		return m, nil
+		cmds = append(cmds, tickCmd())
 	}
+
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
 	pad := strings.Repeat(" ", padding)
 	return "\n" +
 		pad + m.progress.ViewAs(m.percent) + "\n\n" +
+		pad + m.ping.View() + "\n" +
 		pad + helpStyle("Press any key to quit")
 }
 
@@ -106,4 +111,11 @@ func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

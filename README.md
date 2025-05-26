@@ -4,7 +4,7 @@ The Go Update Tool is a command-line application that allows users to update dev
 
 ## Project Structure
 
-```
+``` bash
 go-update-tool
 ├── cmd
 │   └── main.go        # Entry point of the application
